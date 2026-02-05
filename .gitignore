@@ -1,0 +1,7 @@
+logs/
+venv/
+__pycache__/
+*.log
+.env
+airflow.cfg
+unittests.cfg

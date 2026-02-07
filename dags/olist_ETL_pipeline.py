@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 DATA_RAW = "/opt/airflow/data/raw/olist_orders_dataset.csv"
 DATA_PROCESSED = "/opt/airflow/data/processed/orders_clean.csv"
 DATA_EXTRACT = "/opt/airflow/data/processed/orders_extract.csv"
+DATA_DIM_DATE = "/opt/airflow/data/processed/dim_date.csv"
 
 # URI Database Postgres Airflow
 DB_URI = "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
@@ -23,7 +24,7 @@ def extract_orders():
     df = pd.read_csv(DATA_RAW)
     df.to_csv(DATA_EXTRACT, index=False)
 
-    print(f"Extract selesai: {len(df)} baris")
+    print(f"Extract orders selesai: {len(df)} baris")
     return len(df)
 
 def transform_orders():
@@ -51,28 +52,67 @@ def transform_orders():
 
     df.to_csv(DATA_PROCESSED, index=False)
 
-    print(f"Transform selesai: {df.shape}")
+    print(f"Transform orders selesai: {df.shape}")
     return df.shape
 
-def load_orders():
-    if not os.path.exists(DATA_PROCESSED):
-        raise FileNotFoundError(f"Data hasil transform belum ada di {DATA_PROCESSED}")
-
+def transform_dim_date():
     df = pd.read_csv(DATA_PROCESSED)
-    
-    # Membuat koneksi ke Postgres
+    dates = pd.to_datetime(
+    df["order_purchase_timestamp"]
+    ).dt.date.dropna().unique()
+
+    dim_date = pd.DataFrame({"date": dates})
+    dim_date["date_id"] = dim_date["date"].astype(str).str.replace("-", "").astype(int)
+    dim_date["year"] = pd.to_datetime(dim_date["date"]).dt.year
+    dim_date["month"] = pd.to_datetime(dim_date["date"]).dt.month
+    dim_date["day"] = pd.to_datetime(dim_date["date"]).dt.day
+
+    dim_date.to_csv(DATA_DIM_DATE, index=False)
+
+    print("Transform dim_date selesai:", dim_date.shape)
+
+def load_dim_date():
+    if not os.path.exists(DATA_DIM_DATE):
+        raise FileNotFoundError("dim_date belum ada")
+
+    df = pd.read_csv(DATA_DIM_DATE)
+
     engine = create_engine(DB_URI)
+    
+    # ambil date_id yang sudah ada
+    existing = pd.read_sql("SELECT date_id FROM dim_date", engine)
+    existing_ids = set(existing["date_id"])
+
+    # filter hanya date_id baru
+    df_new = df[~df["date_id"].isin(existing_ids)]
+
+    if df_new.empty:
+        print("dim_date tidak ada data baru")
+        return
+    
+    # insert ulang data
+    df.to_sql("dim_date", engine, if_exists="append", index=False)
+
+    print("load dim_date selesai")
+
+def load_orders():
+    df = pd.read_csv(DATA_PROCESSED)
+    df["date_id"] = pd.to_datetime(
+        df["order_purchase_timestamp"]
+    ).dt.strftime("%Y%m%d").astype(int)
+
+    engine = create_engine(DB_URI)
+
     with engine.begin() as conn:
         conn.execute("TRUNCATE TABLE fact_orders;")
-
+    
     df.to_sql(
-    "fact_orders",
-    engine,
-    if_exists="append",
-    index=False
+        "fact_orders",
+        engine,
+        if_exists="append",
+        index=False
     )
-
-    print("Load ke PostgreSQL tanpa duplikat selesai")
+    print("Load fact_orders selesai")
 
 # Definisi DAG
 with DAG(
@@ -92,11 +132,21 @@ with DAG(
         python_callable=transform_orders
     )
 
+    transform_date_task = PythonOperator(
+        task_id="transform_dim_date",
+        python_callable=transform_dim_date
+    )
+
+    load_date_task = PythonOperator (
+        task_id="load_dim_date",
+        python_callable=load_dim_date
+    )
+
     load_task = PythonOperator(
         task_id="load_orders",
         python_callable=load_orders
     )
 
     # Alur kerja (Dependency)
-    extract_task >> transform_task >> load_task
+    extract_task >> transform_task >> transform_date_task >> load_date_task >> load_task
     

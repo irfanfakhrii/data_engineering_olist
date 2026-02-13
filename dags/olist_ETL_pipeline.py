@@ -10,6 +10,7 @@ DATA_RAW = "/opt/airflow/data/raw/olist_orders_dataset.csv"
 DATA_PROCESSED = "/opt/airflow/data/processed/orders_clean.csv"
 DATA_EXTRACT = "/opt/airflow/data/processed/orders_extract.csv"
 DATA_DIM_DATE = "/opt/airflow/data/processed/dim_date.csv"
+DATA_DIM_CUSTOMER = "/opt/airflow/data/raw/olist_customers_dataset.csv"
 
 # URI Database Postgres Airflow
 DB_URI = "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
@@ -26,6 +27,56 @@ def extract_orders():
 
     print(f"Extract orders selesai: {len(df)} baris")
     return len(df)
+
+def transform_customer():
+    if not os.path.exists(DATA_EXTRACT):
+        raise FileNotFoundError("File extract belum ada")
+    
+    df = pd.read_csv(DATA_EXTRACT)
+
+def transform_customer():
+    df = pd.read_csv(DATA_DIM_CUSTOMER)
+
+    print("Daftar kolom:")
+    print(df.columns.tolist())
+
+    return
+
+def load_dim_customer():
+    if not os.path.exists(DATA_DIM_CUSTOMER):
+        raise FileNotFoundError("File dim_customer belum ada")
+
+    df = pd.read_csv(DATA_DIM_CUSTOMER)
+
+    engine = create_engine(DB_URI)
+
+    df = df[
+        [
+            "customer_id",
+            "customer_unique_id",
+            "customer_zip_code_prefix",
+            "customer_city",
+            "customer_state",
+        ]
+    ]
+
+    existing = pd.read_sql("SELECT customer_id FROM dim_customer", engine)
+    existing_ids = set(existing["customer_id"])
+
+    df_new = df[~df["customer_id"].isin(existing_ids)]
+
+    if df_new.empty:
+        print("Tidak ada customer baru")
+        return
+
+    df_new.to_sql(
+        "dim_customer",
+        engine,
+        if_exists="append",
+        index=False
+    )
+
+    print("Insert customer baru:", len(df_new))
 
 def transform_orders():
     if not os.path.exists(DATA_EXTRACT):
@@ -127,6 +178,16 @@ with DAG(
         python_callable=extract_orders
     )
 
+    transform_customer_task = PythonOperator(
+        task_id="transform_customer",
+        python_callable=transform_customer
+    )
+
+    load_dim_customer_task = PythonOperator(
+        task_id="load_dim_customer",
+        python_callable=load_dim_customer
+    )
+
     transform_task = PythonOperator(
         task_id="transform_orders",
         python_callable=transform_orders
@@ -148,5 +209,5 @@ with DAG(
     )
 
     # Alur kerja (Dependency)
-    extract_task >> transform_task >> transform_date_task >> load_date_task >> load_task
+    extract_task >> transform_customer_task >> load_dim_customer_task >> transform_task >> transform_date_task >> load_date_task >> load_task
     

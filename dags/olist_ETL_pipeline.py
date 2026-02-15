@@ -169,7 +169,8 @@ def load_orders():
 with DAG(
     dag_id="olist_etl_pipeline",
     start_date=datetime(2024, 1, 1),
-    schedule=None,
+    # Cron ini artinya: Menit 0, Jam 7-17 (7 pagi - 5 sore), Hari 1-5 (Senin-Jumat)
+    schedule="0 7-17 * * 1-5", 
     catchup=False
 ) as dag:
     

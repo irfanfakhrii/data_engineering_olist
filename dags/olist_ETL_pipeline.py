@@ -12,11 +12,11 @@ DATA_EXTRACT = "/opt/airflow/data/processed/orders_extract.csv"
 DATA_DIM_DATE = "/opt/airflow/data/processed/dim_date.csv"
 DATA_DIM_CUSTOMER = "/opt/airflow/data/raw/olist_customers_dataset.csv"
 
-# URI Database Postgres Airflow
+# URI Database Postgres Airflow 
 DB_URI = "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
 
 def extract_orders():
-    # Perbaikan: Tambahkan pengecekan/pembuatan folder agar tidak error 'No such file or directory'
+    # pengecekan/pembuatan folder agar tidak error 'No such file or directory'
     os.makedirs("/opt/airflow/data/processed", exist_ok=True)
     
     if not os.path.exists(DATA_RAW):
@@ -209,6 +209,6 @@ with DAG(
         python_callable=load_orders
     )
 
-    # Alur kerja (Dependency)
+    # Alur kerja 
     extract_task >> transform_customer_task >> load_dim_customer_task >> transform_task >> transform_date_task >> load_date_task >> load_task
     
